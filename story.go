@@ -43,8 +43,12 @@ type Chapter struct {
 }
 
 type MyHandler struct {
-	story Story
+	story    Story
+	template *template.Template
+	pathFunc func(r *http.Request) string
 }
+
+type HandlerOption func(r *MyHandler)
 
 type Story map[string]Chapter
 
@@ -60,21 +64,43 @@ func JsonStory(r io.Reader) (Story, error) {
 	return story, nil
 }
 
-func NewHandler(s Story) MyHandler {
-	return MyHandler{s}
+func WithTemplate(t *template.Template) HandlerOption {
+	return func(h *MyHandler) {
+		h.template = t
+	}
 }
 
-func (h MyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func WithPathFunc(fn func(r *http.Request) string) HandlerOption {
+	return func(h *MyHandler) {
+		h.pathFunc = fn
+	}
+}
+
+func NewHandler(s Story, opts ...HandlerOption) MyHandler {
+	h := MyHandler{s, tpl, defaultPathFunc}
+
+	for _, opt := range opts {
+		opt(&h)
+	}
+
+	return h
+}
+
+func defaultPathFunc(r *http.Request) string {
 	path := strings.TrimSpace(r.URL.Path)
 
 	if path == "" || path == "/" {
 		path = "/intro"
 	}
 
-	path = path[1:]
+	return path[1:]
+}
+
+func (h MyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	path := h.pathFunc(r)
 
 	if chapter, ok := h.story[path]; ok {
-		err := tpl.Execute(w, chapter)
+		err := h.template.Execute(w, chapter)
 
 		if err != nil {
 			log.Printf("%v", err)
